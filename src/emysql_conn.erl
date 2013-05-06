@@ -3,6 +3,8 @@
 %% Jacob Vorreuter <jacob.vorreuter@gmail.com>
 %% Henning Diedrich <hd2010@eonblast.com>
 %%
+%% Copyright (c) 2013
+%%
 %% Permission is hereby granted, free of charge, to any person
 %% obtaining a copy of this software and associated documentation
 %% files (the "Software"), to deal in the Software without
@@ -23,219 +25,153 @@
 %% WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 %% FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 %% OTHER DEALINGS IN THE SOFTWARE.
+%%==============================================================================
 -module(emysql_conn).
--export([set_database/2, set_encoding/2,
-		execute/3, prepare/3, unprepare/2,
-		open_connections/1, open_connection/1,
-		reset_connection/2, renew_connection/2, close_connection/1,
-		open_n_connections/2, hstate/1
+
+-export([
+  close/1, open/7, execute/2
 ]).
 
 -include("emysql.hrl").
 
-set_database(_, undefined) -> ok;
-set_database(Connection, Database) ->
-	Packet = <<?COM_QUERY, "use ", (iolist_to_binary(Database))/binary>>,
-	emysql_tcp:send_and_recv_packet(Connection#emysql_connection.socket, Packet, 0).
+-define(GREETING_TIMEOUT, 5000). %% milliseconds
+-define(MAXPACKETBYTES, 16#00FFFFFF). %% 16MB per protocol spec
+-define(CLIENT_CAPS_REQUIRED, (
+  ?CLIENT_LONG_PASSWORD bor ?CLIENT_LONG_FLAG bor ?CLIENT_TRANSACTIONS bor
+  ?CLIENT_PROTOCOL_41 bor ?CLIENT_CONNECT_WITH_DB
+)).
+-define(CLIENT_CAPS_OPTIONAL, (
+  ?CLIENT_MULTI_STATEMENTS bor ?CLIENT_MULTI_RESULTS bor
+  ?CLIENT_SECURE_CONNECTION)).
+-define(CLIENT_CAPS, (?CLIENT_CAPS_REQUIRED bor ?CLIENT_CAPS_OPTIONAL)).
 
-set_encoding(Connection, Encoding) ->
-	Packet = <<?COM_QUERY, "set names '", (erlang:atom_to_binary(Encoding, utf8))/binary, "'">>,
-	emysql_tcp:send_and_recv_packet(Connection#emysql_connection.socket, Packet, 0).
+%%~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-execute(Connection, Query, []) when is_list(Query); is_binary(Query) ->
-	Packet = <<?COM_QUERY, (iolist_to_binary(Query))/binary>>,
-	emysql_tcp:send_and_recv_packet(Connection#emysql_connection.socket, Packet, 0);
+%%------------------------------------------------------------------------------
+close(#connection{socket = Sock}) ->
+  emysql_tcp:close(Sock),
+  ok.
 
-execute(Connection, StmtName, []) when is_atom(StmtName) ->
-	prepare_statement(Connection, StmtName),
-	StmtNameBin = atom_to_binary(StmtName, utf8),
-	Packet = <<?COM_QUERY, "EXECUTE ", StmtNameBin/binary>>,
-	emysql_tcp:send_and_recv_packet(Connection#emysql_connection.socket, Packet, 0);
+%%------------------------------------------------------------------------------
+open(PoolId, User, Password, Host, Port, Database, Collation) ->
+  Sock = emysql_tcp:connect(Host, Port),
+  try
+    ThreadID = greet(Sock, User, Password, Database, Collation),
+    #connection{socket = Sock, pool_id = PoolId, thread_id = ThreadID}
+  catch
+    {Who, _Error} = What when open =:= Who orelse tcp =:= Who ->
+      emysql_tcp:close(Sock),
+      throw(What)
+  end.
 
-execute(Connection, Query, Args) when (is_list(Query) orelse is_binary(Query)) andalso is_list(Args) ->
-	StmtName = "stmt_"++integer_to_list(erlang:phash2(Query)),
-	prepare(Connection, StmtName, Query),
-	Ret =
-	case set_params(Connection, 1, Args, undefined) of
-		OK when is_record(OK, ok_packet) ->
-			ParamNamesBin = list_to_binary(string:join([[$@ | integer_to_list(I)] || I <- lists:seq(1, length(Args))], ", ")),
-			Packet = <<?COM_QUERY, "EXECUTE ", (list_to_binary(StmtName))/binary, " USING ", ParamNamesBin/binary>>,
-			emysql_tcp:send_and_recv_packet(Connection#emysql_connection.socket, Packet, 0);
-		Error ->
-			Error
-	end,
-	unprepare(Connection, StmtName),
-	Ret;
+%%------------------------------------------------------------------------------
+execute(#connection{socket = Sock}, Query) ->
+  emysql_tcp:send_and_recv(Sock, [?COM_QUERY, Query], 0).
 
-execute(Connection, StmtName, Args) when is_atom(StmtName), is_list(Args) ->
-	prepare_statement(Connection, StmtName),
-	case set_params(Connection, 1, Args, undefined) of
-		OK when is_record(OK, ok_packet) ->
-			ParamNamesBin = list_to_binary(string:join([[$@ | integer_to_list(I)] || I <- lists:seq(1, length(Args))], ", ")),
-			StmtNameBin = atom_to_binary(StmtName, utf8),
-			Packet = <<?COM_QUERY, "EXECUTE ", StmtNameBin/binary, " USING ", ParamNamesBin/binary>>,
-			emysql_tcp:send_and_recv_packet(Connection#emysql_connection.socket, Packet, 0);
-		Error ->
-			Error
-	end.
+%%~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-prepare(Connection, Name, Statement) when is_atom(Name) ->
-	prepare(Connection, atom_to_list(Name), Statement);
-prepare(Connection, Name, Statement) ->
-	Packet = <<?COM_QUERY, "PREPARE ", (list_to_binary(Name))/binary, " FROM '", (iolist_to_binary(Statement))/binary, "'">>,
-	emysql_tcp:send_and_recv_packet(Connection#emysql_connection.socket, Packet, 0).
+%%------------------------------------------------------------------------------
+greet(Sock, User, Password, Database, Collation) ->
+  case emysql_tcp:recv_greeting(Sock, ?GREETING_TIMEOUT) of
+    #greeting{} = Greeting ->
+      case handshake(Sock, User, Password, Database, Collation, Greeting) of
+        #ok_packet{} ->
+          Greeting#greeting.thread_id;
+        #error_packet{msg = Msg} ->
+          throw({open, {failed_to_authenticate, Msg}})
+      end;
+    #error_packet{msg = Msg} ->
+      throw({open, {failed_to_greet, Msg}})
+  end.
 
-unprepare(Connection, Name) when is_atom(Name)->
-	unprepare(Connection, atom_to_list(Name));
-unprepare(Connection, Name) ->
-	Packet = <<?COM_QUERY, "DEALLOCATE PREPARE ", (list_to_binary(Name))/binary>>,
-	emysql_tcp:send_and_recv_packet(Connection#emysql_connection.socket, Packet, 0).
+%%------------------------------------------------------------------------------
+handshake(Sock, User, Password, Database, undefined, Greeting) ->
+  handshake(
+    Sock, User, Password, Database, Greeting#greeting.collation, Greeting);
 
-open_n_connections(PoolId, N) ->
-	case emysql_conn_mgr:find_pool(PoolId, emysql_conn_mgr:pools()) of
-		{Pool, _} ->
-			lists:foldl(fun(_ ,Connections) ->
-				%% Catch {'EXIT',_} errors so newly opened connections are not orphaned.
-				case catch open_connection(Pool) of
-					#emysql_connection{} = Connection ->
-						[Connection | Connections];
-					_ ->
-						Connections
-				end
-			end, [], lists:seq(1, N));
-		_ ->
-			exit(pool_not_found)
-	end.
+handshake(Sock, User, Password, Database, Collation, Greeting) ->
+  #greeting{
+    seq_num=SeqNum, caps=ServerCaps, salt=Salt, plugin=Plugin} = Greeting,
+  Caps = validate_server_caps(ServerCaps),
+  Maxsize = ?MAXPACKETBYTES,
+  ScrambleBuff = password(Plugin, Password, Salt),
+  ScrambleLen = size(ScrambleBuff),
+  Packet = [
+    <<Caps:32/little, Maxsize:32/little, Collation:8, 0:23/unit:8>>,
+    User, 0, ScrambleLen, ScrambleBuff, Database, 0],
+  case emysql_tcp:send_and_recv(Sock, Packet, SeqNum+1) of
+    #eof_packet{seq_num = SeqNum1} ->
+      AuthOld = password(?MYSQL_OLD_PASSWORD, Password, Salt),
+      emysql_tcp:send_and_recv(Sock, [AuthOld, 0], SeqNum1+1);
+    Result ->
+      Result
+  end.
 
-open_connections(Pool) ->
-	case (queue:len(Pool#pool.available) + gb_trees:size(Pool#pool.locked)) < Pool#pool.size of
-		true ->
-			case catch open_connection(Pool) of
-				#emysql_connection{} = Conn ->
-					open_connections(Pool#pool{available = queue:in(Conn, Pool#pool.available)});
-				_ ->
-					Pool
-			end;
-		false ->
-			Pool
-	end.
+%%------------------------------------------------------------------------------
+password(?MYSQL_OLD_PASSWORD, Password, Salt) ->
+  {P1, P2} = hash(Password),
+  {S1, S2} = hash(Salt),
+  Seed1 = P1 bxor S1,
+  Seed2 = P2 bxor S2,
+  List = rnd(9, Seed1, Seed2),
+  {L, [Extra]} = lists:split(8, List),
+  list_to_binary(lists:map(fun (E) -> E bxor (Extra - 64) end, L));
 
-open_connection(#pool{pool_id=PoolId, host=Host, port=Port, user=User, password=Password, database=Database, encoding=Encoding}) ->
-	case gen_tcp:connect(Host, Port, [binary, {packet, raw}, {active, false}]) of
-		{ok, Sock} ->
-			Greeting = case catch emysql_auth:do_handshake(Sock, User, Password) of
-				{'EXIT', ExitReason} ->
-					gen_tcp:close(Sock),
-					exit(ExitReason);
-				Greeting0 -> Greeting0
-			end,
-			Connection = #emysql_connection{
-				id = erlang:port_to_list(Sock),
-				pool_id = PoolId,
-				socket = Sock,
-				version = Greeting#greeting.server_version,
-				thread_id = Greeting#greeting.thread_id,
-				caps = Greeting#greeting.caps,
-				language = Greeting#greeting.language
-			},
-			case set_database(Connection, Database) of
-				OK1 when is_record(OK1, ok_packet) ->
-					ok;
-				Err1 when is_record(Err1, error_packet) ->
-					gen_tcp:close(Sock),
-					exit({failed_to_set_database, Err1#error_packet.msg})
-			end,
-			case set_encoding(Connection, Encoding) of
-				OK2 when is_record(OK2, ok_packet) ->
-					ok;
-				Err2 when is_record(Err2, error_packet) ->
-					gen_tcp:close(Sock),
-					exit({failed_to_set_encoding, Err2#error_packet.msg})
-			end,
-			case emysql_conn_mgr:give_manager_control(Sock) of
-				{error ,Reason} ->
-					gen_tcp:close(Sock),
-					exit({Reason,
-						"Failed to find conn mgr when opening connection. Make sure crypto is started and emysql.app is in the Erlang path."});
-				ok -> Connection
-			end;
-		{error, Reason} ->
-			exit({failed_to_connect_to_database, Reason})
-	end.
+password(?MYSQL_NATIVE_PASSWORD, Password, Salt) ->
+  Stage1 = crypto:sha(Password),
+  Stage2 = crypto:sha(Stage1),
+  Res = crypto:sha_final(
+    crypto:sha_update(crypto:sha_update(crypto:sha_init(),Salt),Stage2)),
+  bxor_binary(Res, Stage1).
 
-reset_connection(Pools, Conn) ->
-	%% if a process dies or times out while doing work
-	%% the socket must be closed and the connection reset
-	%% in the conn_mgr state. Also a new connection needs
-	%% to be opened to replace the old one.
-	close_connection(Conn),
-	case emysql_conn_mgr:find_pool(Conn#emysql_connection.pool_id, Pools) of
-		{Pool, _} ->
-			case catch open_connection(Pool) of
-				#emysql_connection{} = NewConn ->
-					emysql_conn_mgr:replace_connection(Conn, NewConn);
-				{'EXIT' ,Reason} ->
-					emysql_conn_mgr:unlock_connection(Conn),
-					exit(Reason)
-			end;
-		undefined ->
-			exit(pool_not_found)
-	end.
+%%------------------------------------------------------------------------------
+validate_server_caps(ServerCaps) ->
+  case ServerCaps band ?CLIENT_CAPS_REQUIRED of
+    ?CLIENT_CAPS_REQUIRED ->
+      ServerCaps band ?CLIENT_CAPS;
+    _ ->
+      throw({open, {server_capabilities_mismatch, ServerCaps}})
+  end.
 
-renew_connection(Pools, Conn) ->
-	close_connection(Conn),
-	case emysql_conn_mgr:find_pool(Conn#emysql_connection.pool_id, Pools) of
-		{Pool, _} ->
-			case catch open_connection(Pool) of
-				#emysql_connection{} = NewConn ->
-					emysql_conn_mgr:replace_connection_locked(Conn, NewConn),
-					NewConn;
-				{'EXIT' ,Reason} ->
-					emysql_conn_mgr:unlock_connection(Conn),
-					exit(Reason)
-			end;
-		undefined ->
-			exit(pool_not_found)
-	end.
+%%~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+%% Native Password helper functions
+%%~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-close_connection(Conn) ->
-	%% garbage collect statements
-	emysql_statements:remove(Conn#emysql_connection.id),
-	ok = gen_tcp:close(Conn#emysql_connection.socket).
+%%------------------------------------------------------------------------------
+bxor_binary(B1, B2) ->
+  list_to_binary(dualmap(
+    fun (E1, E2) -> E1 bxor E2 end, binary_to_list(B1), binary_to_list(B2))).
 
-%%--------------------------------------------------------------------
-%%% Internal functions
-%%--------------------------------------------------------------------
-set_params(_, _, [], Result) -> Result;
-set_params(_, _, _, Error) when is_record(Error, error_packet) -> Error;
-set_params(Connection, Num, [Val|Tail], _) ->
-	NumBin = emysql_util:encode(Num, true),
-	ValBin = emysql_util:encode(Val, true),
-	Packet = <<?COM_QUERY, "SET @", NumBin/binary, "=", ValBin/binary>>,
-	Result = emysql_tcp:send_and_recv_packet(Connection#emysql_connection.socket, Packet, 0),
-	set_params(Connection, Num+1, Tail, Result).
+dualmap(_F, [], []) ->
+  [];
+dualmap(F, [E1 | R1], [E2 | R2]) ->
+  [F(E1, E2) | dualmap(F, R1, R2)].
 
-prepare_statement(Connection, StmtName) ->
-	case emysql_statements:fetch(StmtName) of
-		undefined ->
-			exit(statement_has_not_been_prepared);
-		{Version, Statement} ->
-			case emysql_statements:version(Connection#emysql_connection.id, StmtName) of
-				Version ->
-					ok;
-				_ ->
-					case prepare(Connection, StmtName, Statement) of
-						OK when is_record(OK, ok_packet) ->
-							emysql_statements:prepare(Connection#emysql_connection.id, StmtName, Version);
-						Err when is_record(Err, error_packet) ->
-							exit({failed_to_prepare_statement, Err#error_packet.msg})
-					end
-			end
-	end.
+%%~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+%% Old Password helper functions
+%%~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-% human readable string rep of the server state flag
-%% @private
-hstate(State) ->
-	   case (State band ?SERVER_STATUS_AUTOCOMMIT) of 0 -> ""; _-> "AUTOCOMMIT " end
-	++ case (State band ?SERVER_MORE_RESULTS_EXIST) of 0 -> ""; _-> "MORE_RESULTS_EXIST " end
-	++ case (State band ?SERVER_QUERY_NO_INDEX_USED) of 0 -> ""; _-> "NO_INDEX_USED " end.
+%%------------------------------------------------------------------------------
+hash(S) -> hash(binary_to_list(iolist_to_binary(S)), 1345345333, 305419889, 7).
+hash([C | S], N1, N2, Add) ->
+  N1_1 = N1 bxor (((N1 band 63) + Add) * C + N1 * 256),
+  N2_1 = N2 + ((N2 * 256) bxor N1_1),
+  Add_1 = Add + C,
+  hash(S, N1_1, N2_1, Add_1);
+hash([], N1, N2, _Add) ->
+  Mask = (1 bsl 31) - 1,
+  {N1 band Mask, N2 band Mask}.
+
+%%------------------------------------------------------------------------------
+rnd(N, Seed1, Seed2) ->
+  Mod = (1 bsl 30) - 1,
+  rnd(N, [], Seed1 rem Mod, Seed2 rem Mod).
+rnd(0, List, _, _) ->
+  lists:reverse(List);
+rnd(N, List, Seed1, Seed2) ->
+  Mod = (1 bsl 30) - 1,
+  NSeed1 = (Seed1 * 3 + Seed2) rem Mod,
+  NSeed2 = (NSeed1 + Seed2 + 33) rem Mod,
+  Float = (float(NSeed1) / float(Mod))*31,
+  Val = trunc(Float)+64,
+  rnd(N - 1, [Val | List], NSeed1, NSeed2).

@@ -2,6 +2,8 @@
 %% Bill Warnecke <bill@rupture.com>
 %% Jacob Vorreuter <jacob.vorreuter@gmail.com>
 %%
+%% Copyright (c) 2013
+%%
 %% Permission is hereby granted, free of charge, to any person
 %% obtaining a copy of this software and associated documentation
 %% files (the "Software"), to deal in the Software without
@@ -22,41 +24,33 @@
 %% WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 %% FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 %% OTHER DEALINGS IN THE SOFTWARE.
+%%==============================================================================
 -module(emysql_app).
 -behaviour(application).
 
--export([start/2, stop/1, modules/0, default_timeout/0, lock_timeout/0, pools/0]).
+-export([start/2, stop/1]).
+-export([config/1, modules/0]).
 
--include("emysql.hrl").
+%%~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+%%------------------------------------------------------------------------------
 start(_Type, _StartArgs) ->
-	emysql_sup:start_link().
+  emysql_sup:start_link().
 
+%%------------------------------------------------------------------------------
 stop(_State) ->
-	ok = lists:foreach(
-		fun (Pool) -> emysql:remove_pool(Pool#pool.pool_id) end,
-		emysql_conn_mgr:pools()).
+  emysql_conn_mgr:delete_all_pools().
 
+%%------------------------------------------------------------------------------
+config(pools) ->
+  case application:get_env(emysql, pools) of
+    {ok, Pools} when is_list(Pools) ->
+      Pools;
+    _ ->
+      []
+  end.
+
+%%------------------------------------------------------------------------------
 modules() ->
-	{ok, Modules} = application_controller:get_key(emysql, modules),
-	Modules.
-
-default_timeout() ->
-	case application:get_env(emysql, default_timeout) of
-		undefined -> ?TIMEOUT;
-		{ok, Timeout} -> Timeout
-	end.
-
-lock_timeout() ->
-	case application:get_env(emysql, lock_timeout) of
-		undefined -> ?LOCK_TIMEOUT;
-		{ok, Timeout} -> Timeout
-	end.
-
-pools() ->
-	case application:get_env(emysql, pools) of
-		{ok, Pools} when is_list(Pools) ->
-			Pools;
-		_ ->
-			[]
-	end.
+  {ok, Modules} = application_controller:get_key(emysql, modules),
+  Modules.
