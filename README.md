@@ -12,7 +12,7 @@ promising future, take a look at extend's [bank][bank] and
 Our motivation in publishing this is simply to share back our modifications.
 We do not expect this to be useful to anyone else, nor is it supported.
 
-This project is used and tested with Erlang R14B04 and MySQL 5.5.30
+This project is used and tested with Erlang R16B02 and MySQL 5.5.30
 
 [emysql]: http://github.com/Eonblast/emysql
 [bank]: http://github.com/extend/bank

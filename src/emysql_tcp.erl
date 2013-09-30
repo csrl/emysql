@@ -389,10 +389,6 @@ asciz(Data) ->
     [L] -> {L, <<>>}
   end.
 
-%%------------------------------------------------------------------------------
-binary_to_integer(B) ->
-  list_to_integer(binary_to_list(B)).
-
 % ------------------------------------------------------------------------------
 % http://dev.mysql.com/doc/internals/en/generic-response-packets.html
 %

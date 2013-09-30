@@ -32,7 +32,7 @@
 -export([
   add_pool/2, add_pool/8, remove_pool/1,
   increment_pool_size/2, decrement_pool_size/2,
-  execute/2, execute/3
+  query/2, query/3
 ]).
 
 %%~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -86,11 +86,11 @@ decrement_pool_size(PoolId, Num) when is_integer(Num) andalso Num >= 0 ->
   emysql_conn_mgr:close_connections(PoolId, Num).
 
 %%------------------------------------------------------------------------------
-execute(PoolId, Query) ->
-  execute(PoolId, Query, infinity).
+query(PoolId, Query) ->
+  query(PoolId, Query, infinity).
 
 %%------------------------------------------------------------------------------
-execute(PoolId, Query, Timeout) when
+query(PoolId, Query, Timeout) when
     is_list(Query) orelse is_binary(Query),
     is_integer(Timeout) andalso Timeout >= 0 orelse infinity =:= Timeout ->
   case emysql_conn_mgr:request_connection(PoolId, Timeout) of
@@ -103,7 +103,7 @@ execute(PoolId, Query, Timeout) when
   end.
 
 do_query(Connection, Query) ->
-  try emysql_conn:execute(Connection, Query) of
+  try emysql_conn:query(Connection, Query) of
     Result ->
       emysql_conn_mgr:release_connection(Connection),
       Result

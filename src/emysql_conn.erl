@@ -29,7 +29,7 @@
 -module(emysql_conn).
 
 -export([
-  close/1, open/7, execute/2
+  close/1, open/7, query/2
 ]).
 
 -include("emysql.hrl").
@@ -65,7 +65,7 @@ open(PoolId, User, Password, Host, Port, Database, Collation) ->
   end.
 
 %%------------------------------------------------------------------------------
-execute(#connection{socket = Sock}, Query) ->
+query(#connection{socket = Sock}, Query) ->
   emysql_tcp:send_and_recv(Sock, [?COM_QUERY, Query], 0).
 
 %%~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -118,10 +118,10 @@ password(?MYSQL_OLD_PASSWORD, Password, Salt) ->
   list_to_binary(lists:map(fun (E) -> E bxor (Extra - 64) end, L));
 
 password(?MYSQL_NATIVE_PASSWORD, Password, Salt) ->
-  Stage1 = crypto:sha(Password),
-  Stage2 = crypto:sha(Stage1),
-  Res = crypto:sha_final(
-    crypto:sha_update(crypto:sha_update(crypto:sha_init(),Salt),Stage2)),
+  Stage1 = crypto:hash(sha, Password),
+  Stage2 = crypto:hash(sha, Stage1),
+  Res = crypto:hash_final(
+    crypto:hash_update(crypto:hash_update(crypto:hash_init(sha),Salt),Stage2)),
   bxor_binary(Res, Stage1).
 
 %%------------------------------------------------------------------------------
