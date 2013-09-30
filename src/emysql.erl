@@ -49,7 +49,7 @@ stop() ->
 %%~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 %%------------------------------------------------------------------------------
-add_pool(PoolId, Config) ->
+add_pool(PoolId, Config) when is_list(Config) ->
   add_pool(
     PoolId,
     proplists:get_value(size, Config, 1),
@@ -70,12 +70,12 @@ add_pool(PoolId, Size, User, Password, Host, Port, Database, Collation) when
     is_binary(Database) orelse is_list(Database),
     undefined =:= Collation orelse is_integer(Collation) andalso
       Collation >= 1 andalso Collation =< 255 ->
-  emysql_conn_mgr:make_pool(
+  emysql_conn_mgr:add_pool(
     PoolId, Size, User, Password, Host, Port, Database, Collation).
 
 %%------------------------------------------------------------------------------
 remove_pool(PoolId) ->
-  emysql_conn_mgr:delete_pool(PoolId).
+  emysql_conn_mgr:remove_pool(PoolId).
 
 %%------------------------------------------------------------------------------
 increment_pool_size(PoolId, Num) when is_integer(Num) andalso Num >= 0 ->
@@ -101,7 +101,6 @@ query(PoolId, Query, Timeout) when
     Error ->
       Error
   end.
-
 do_query(Connection, Query) ->
   try emysql_conn:query(Connection, Query) of
     Result ->

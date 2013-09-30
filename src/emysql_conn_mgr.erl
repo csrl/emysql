@@ -30,7 +30,7 @@
 
 -export([start_link/0]).
 -export([
-  make_pool/8, delete_pool/1, delete_all_pools/0,
+  add_pool/8, remove_pool/1, remove_all_pools/0,
   open_connections/2, close_connections/2,
   request_connection/2, renew_connection/1, release_connection/1
 ]).
@@ -52,7 +52,7 @@ start_link() ->
 %%~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 %%------------------------------------------------------------------------------
-make_pool(PoolId, Size, User, Password, Host, Port, Database, Collation) ->
+add_pool(PoolId, Size, User, Password, Host, Port, Database, Collation) ->
   Pool = #pool{
     pool_id = PoolId,
     config = #pool_config{
@@ -70,7 +70,7 @@ make_pool(PoolId, Size, User, Password, Host, Port, Database, Collation) ->
   end.
 
 %%------------------------------------------------------------------------------
-delete_pool(PoolId) ->
+remove_pool(PoolId) ->
   case do_gen_call({remove_pool, PoolId}) of
     {ok, Pool} ->
       lists:foreach(
@@ -89,9 +89,9 @@ delete_pool(PoolId) ->
   end.
 
 %%------------------------------------------------------------------------------
-delete_all_pools() ->
+remove_all_pools() ->
   {ok, PoolIds} = do_gen_call(pools),
-  lists:foreach(fun delete_pool/1, PoolIds).
+  lists:foreach(fun remove_pool/1, PoolIds).
 
 %%------------------------------------------------------------------------------
 open_connections(PoolId, Count) ->

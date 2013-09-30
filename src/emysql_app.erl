@@ -39,7 +39,7 @@ start(_Type, _StartArgs) ->
 
 %%------------------------------------------------------------------------------
 stop(_State) ->
-  emysql_conn_mgr:delete_all_pools().
+  emysql_conn_mgr:remove_all_pools().
 
 %%------------------------------------------------------------------------------
 config(pools) ->

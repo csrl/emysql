@@ -264,18 +264,8 @@ make_field(SeqNum, Data) ->
 %% TODO: use Field length, flags, decimals to properly format various types
 %%       eg. float precision, zerofill etc.
 type_cast_data(_Type ,undefined) ->
-% ?FIELD_TYPE_NULL - type can be anything here, including FIELD_TYPE_NULL.
+  % ?FIELD_TYPE_NULL; type can be anything here, including FIELD_TYPE_NULL.
   undefined;
-
-type_cast_data(Type, String) when
-    Type == ?FIELD_TYPE_VARCHAR; % unused???
-    Type == ?FIELD_TYPE_TINY_BLOB; % unused???
-    Type == ?FIELD_TYPE_MEDIUM_BLOB; % unused???
-    Type == ?FIELD_TYPE_LONG_BLOB; % unused???
-    Type == ?FIELD_TYPE_BLOB;
-    Type == ?FIELD_TYPE_VAR_STRING;
-    Type == ?FIELD_TYPE_STRING ->
-  String;
 
 type_cast_data(Type, String) when
     Type == ?FIELD_TYPE_TINY;
@@ -315,7 +305,15 @@ type_cast_data(Type, String) when
 % ?FIELD_TYPE_ENUM % unused???
 % ?FIELD_TYPE_SET % unused???
 % ?FIELD_TYPE_GEOMETRY % unused???
-type_cast_data(_Type, String) -> String.
+type_cast_data(_Type, String) ->
+  %  Type == ?FIELD_TYPE_VARCHAR; % unused???
+  %  Type == ?FIELD_TYPE_TINY_BLOB; % unused???
+  %  Type == ?FIELD_TYPE_MEDIUM_BLOB; % unused???
+  %  Type == ?FIELD_TYPE_LONG_BLOB; % unused???
+  %  Type == ?FIELD_TYPE_BLOB;
+  %  Type == ?FIELD_TYPE_VAR_STRING;
+  %  Type == ?FIELD_TYPE_STRING ->
+ String.
 
 %%------------------------------------------------------------------------------
 %type_cast_nop(Data) ->
