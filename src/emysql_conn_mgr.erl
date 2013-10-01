@@ -382,7 +382,7 @@ load_pools() ->
       password = proplists:get_value(password, Props),
       host = proplists:get_value(host, Props, "localhost"),
       port = proplists:get_value(port, Props, 3306),
-      database = proplists:get_value(database, Props),
+      database = proplists:get_value(database, Props, ""),
       collation = proplists:get_value(collation, Props)
     }
   } || {PoolId, Props} <- emysql_app:config(pools), verify_pool_config(Props)].
@@ -393,7 +393,7 @@ verify_pool_config(Props) ->
   Password = proplists:get_value(password, Props),
   Host = proplists:get_value(host, Props, "localhost"),
   Port = proplists:get_value(port, Props, 3306),
-  Database = proplists:get_value(database, Props),
+  Database = proplists:get_value(database, Props, ""),
   Collation = proplists:get_value(collation, Props),
   do_verify(Size, User, Password, Host, Port, Database, Collation).
 do_verify(Size, User, Password, Host, Port, Database, Collation) when

@@ -57,7 +57,7 @@ add_pool(PoolId, Config) when is_list(Config) ->
     proplists:get_value(password, Config),
     proplists:get_value(host, Config, "localhost"),
     proplists:get_value(port, Config, 3306),
-    proplists:get_value(database, Config),
+    proplists:get_value(database, Config, ""),
     proplists:get_value(collation, Config)).
 
 %%------------------------------------------------------------------------------
