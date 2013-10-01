@@ -41,7 +41,7 @@
 
 %% Records returned externally
 -record(field, {
-  seq_num, catalog, db, table, org_table, name, org_name, type, default,
+  seq_num, db, table, org_table, name, org_name, type, default,
   charset_nr, length, flags, decimals}).
 -record(ok_packet, {
   seq_num, affected_rows, insert_id, status, warning_count, msg}).

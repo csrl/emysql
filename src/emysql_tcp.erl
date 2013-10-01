@@ -228,26 +228,31 @@ decode_row_data(Data, [Type | Types]) ->
 
 %%------------------------------------------------------------------------------
 make_field(SeqNum, Data) ->
-  {Catalog, Rest2} = length_coded_string_fast(Data), % 'def'
-  {Db, Rest3} = length_coded_string_fast(Rest2), % max 64 chars
-  {Table, Rest4} = length_coded_string(Rest3), % max 256 chars
-  {OrgTable, Rest5} = length_coded_string_fast(Rest4), % max 64 chars
-  {Name, Rest6} = length_coded_string(Rest5), % max 256 chars
-  {OrgName, Rest7} = length_coded_string_fast(Rest6), % max 64 chars
+  %% A little uglier, but 100% speed improvement, and as far as I know these
+  %% can't be null.  Table and Name still have to be decoded, since they can
+  %% be more than 250 bytes.
+  <<3, "def", L1, Db:L1/binary, Rest1/binary>> = Data,
+  {Table, <<L2, OrgTable:L2/binary, Rest2/binary>>} = length_coded_string(Rest1),
+  {Name, <<L3, OrgName:L3/binary, Rest3/binary>>} = length_coded_string(Rest2),
+%  {_Catalog, Rest1} = length_coded_string(Data), % 'def'
+%  {Db, Rest2} = length_coded_string(Rest1), % max 64 chars
+%  {Table, Rest3} = length_coded_string(Rest2), % max 256 chars
+%  {OrgTable, Rest4} = length_coded_string(Rest3), % max 64 chars
+%  {Name, Rest5} = length_coded_string(Rest4), % max 256 chars
+%  {OrgName, Rest6} = length_coded_string(Rest5), % max 64 chars
   <<12, % num bytes of fixed size fields; defined as a length coded integer
     CharSetNr:16/little,
     Length:32/little,
     Type:8/little,
     Flags:16/little,
     Decimals:8/little,
-    0:16, Rest8/binary>> = Rest7,
-  {Defaults, <<>>} = case Rest8 of
+    0:16, Rest4/binary>> = Rest3,
+  {Defaults, <<>>} = case Rest4 of
     <<>> -> {<<>>, <<>>};
-    _ -> length_coded_string(Rest8)
+    _ -> length_coded_string(Rest4)
   end,
   #field{
     seq_num = SeqNum,
-    catalog = Catalog,
     db = Db,
     table = Table,
     org_table = OrgTable,
@@ -374,10 +379,6 @@ length_coded_string(<<253, Len:24/little, Str:Len/binary, Tail/binary>>) ->
 length_coded_string(<<254, Len:64/little, Str:Len/binary, Tail/binary>>) ->
   {Str, Tail};
 length_coded_string(<<Len:8, Str:Len/binary, Tail/binary>>) when Len =< 250 ->
-  {Str, Tail}.
-
-%%------------------------------------------------------------------------------
-length_coded_string_fast(<<Len:8, Str:Len/binary, Tail/binary>>) ->
   {Str, Tail}.
 
 %%------------------------------------------------------------------------------
