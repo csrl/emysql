@@ -30,7 +30,7 @@
 
 -export([start/0, stop/0]).
 -export([
-  add_pool/2, add_pool/8, remove_pool/1,
+  add_pool/2, remove_pool/1,
   increment_pool_size/2, decrement_pool_size/2,
   query/2, query/3
 ]).
@@ -49,29 +49,9 @@ stop() ->
 %%~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 %%------------------------------------------------------------------------------
-add_pool(PoolId, Config) when is_list(Config) ->
-  add_pool(
-    PoolId,
-    proplists:get_value(size, Config, 1),
-    proplists:get_value(user, Config),
-    proplists:get_value(password, Config),
-    proplists:get_value(host, Config, "localhost"),
-    proplists:get_value(port, Config, 3306),
-    proplists:get_value(database, Config, ""),
-    proplists:get_value(collation, Config)).
-
-%%------------------------------------------------------------------------------
-add_pool(PoolId, Size, User, Password, Host, Port, Database, Collation) when
-    is_integer(Size) andalso Size >= 0,
-    is_binary(User) orelse is_list(User),
-    is_binary(Password) orelse is_list(Password),
-    is_list(Host) orelse is_atom(Host) orelse is_tuple(Host),
-    is_number(Port) andalso Port >= 0,
-    is_binary(Database) orelse is_list(Database),
-    undefined =:= Collation orelse is_integer(Collation) andalso
-      Collation >= 1 andalso Collation =< 255 ->
-  emysql_conn_mgr:add_pool(
-    PoolId, Size, User, Password, Host, Port, Database, Collation).
+add_pool(PoolId, Props) when is_list(Props) ->
+  {Size, Config} = emysql_app:pool_config(Props),
+  emysql_conn_mgr:add_pool(PoolId, Size, Config).
 
 %%------------------------------------------------------------------------------
 remove_pool(PoolId) ->

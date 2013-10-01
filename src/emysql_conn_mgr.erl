@@ -30,7 +30,7 @@
 
 -export([start_link/0]).
 -export([
-  add_pool/8, remove_pool/1, remove_all_pools/0,
+  add_pool/3, remove_pool/1, remove_all_pools/0,
   open_connections/2, close_connections/2,
   request_connection/2, renew_connection/1, release_connection/1
 ]).
@@ -52,17 +52,8 @@ start_link() ->
 %%~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 %%------------------------------------------------------------------------------
-add_pool(PoolId, Size, User, Password, Host, Port, Database, Collation) ->
-  Pool = #pool{
-    pool_id = PoolId,
-    config = #pool_config{
-      user = User,
-      password = Password,
-      host = Host,
-      port = Port,
-      database = Database,
-      collation = Collation}},
-  case do_gen_call({add_pool, Pool}) of
+add_pool(PoolId, Size, Config) ->
+  case do_gen_call({add_pool, #pool{pool_id = PoolId, config = Config}}) of
     ok ->
       open_connections(PoolId, Size);
     Error ->
@@ -200,9 +191,7 @@ do_gen_call(Msg) ->
 %% Description: Initiates the server
 %%------------------------------------------------------------------------------
 init([]) ->
-  Pools = load_pools(),
-  Pools1 = [init_connections(Pool) || Pool <- Pools],
-  {ok, #state{pools = Pools1}}.
+  {ok, #state{pools = load_pools(emysql_app:config(pools))}}.
 
 %%------------------------------------------------------------------------------
 %% Function: terminate(Reason, State) -> void()
@@ -370,60 +359,31 @@ handle_info(_Info, State) ->
 %%~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 %%------------------------------------------------------------------------------
-load_pools() ->
-  %% if the emysql application values are not present in the config
-  %% file we will initialize an empty set of pools. Otherwise, the
-  %% values defined in the config are used to initialize the state.
-  [#pool{
-    pool_id = PoolId,
-    size = proplists:get_value(size, Props, 1),
-    config = #pool_config{
-      user = proplists:get_value(user, Props),
-      password = proplists:get_value(password, Props),
-      host = proplists:get_value(host, Props, "localhost"),
-      port = proplists:get_value(port, Props, 3306),
-      database = proplists:get_value(database, Props, ""),
-      collation = proplists:get_value(collation, Props)
-    }
-  } || {PoolId, Props} <- emysql_app:config(pools), verify_pool_config(Props)].
+load_pools([]) ->
+  [];
 
-verify_pool_config(Props) ->
-  Size = proplists:get_value(size, Props),
-  User = proplists:get_value(user, Props),
-  Password = proplists:get_value(password, Props),
-  Host = proplists:get_value(host, Props, "localhost"),
-  Port = proplists:get_value(port, Props, 3306),
-  Database = proplists:get_value(database, Props, ""),
-  Collation = proplists:get_value(collation, Props),
-  do_verify(Size, User, Password, Host, Port, Database, Collation).
-do_verify(Size, User, Password, Host, Port, Database, Collation) when
-    is_integer(Size) andalso Size >= 0,
-    is_binary(User) orelse is_list(User),
-    is_binary(Password) orelse is_list(Password),
-    is_list(Host) orelse is_atom(Host) orelse is_tuple(Host),
-    is_number(Port) andalso Port >= 0,
-    is_binary(Database) orelse is_list(Database),
-    undefined =:= Collation orelse is_integer(Collation) andalso
-      Collation >= 1 andalso Collation =< 255 ->
-  true;
-do_verify(_Size, _User, _Password, _Host, _Port, _Database, _Collation) ->
-  false.
+load_pools([{PoolId, {Size, Config}} | Pools]) ->
+  Conns = init_connections(PoolId, Config, Size),
+  Pool = #pool{
+    pool_id = PoolId,
+    config = Config,
+    size = length(Conns),
+    available = queue:from_list(Conns)},
+  [Pool | load_pools(Pools)].
 
 %%------------------------------------------------------------------------------
-init_connections(#pool{pool_id=PoolId, config=Config, size=Size} = Pool) ->
-  Conns = init_connections(PoolId, Config, [], Size),
-  Pool#pool{size = length(Conns), available = queue:from_list(Conns)}.
-
-init_connections(_PoolId, _Config, Conns, 0) ->
-  Conns;
-
-init_connections(PoolId, Config, Conns, Count) ->
-  case open_connection(PoolId, Config) of
-    {ok, Conn} ->
-      init_connections(PoolId, Config, [Conn | Conns], Count - 1);
-    _ ->
-      Conns
-  end.
+init_connections(PoolId, Config, Count) ->
+  lists:foldl(
+    fun(_, Conns) ->
+      case open_connection(PoolId, Config) of
+        {ok, Conn} ->
+          [Conn | Conns];
+        _ ->
+          Conns
+      end
+    end,
+    [],
+    lists:seq(1, Count)).
 
 %%------------------------------------------------------------------------------
 open_connection(PoolId, #pool_config{
