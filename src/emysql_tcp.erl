@@ -35,6 +35,7 @@
 %% Default collation will mostly go unused on newer mysql servers, as with them
 %% we just default to what the server wants.
 -define(DEFAULT_COLLATION, 8). %% 8 = latin1_swedish_ci, 192 = utf8_unicode_ci
+-define(ERTS_BUFFER_SIZE, 65536).
 
 %%~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -44,7 +45,14 @@ close(Sock) ->
 
 %%------------------------------------------------------------------------------
 connect(Host, Port) ->
-  case gen_tcp:connect(Host, Port, [binary, {packet, raw}, {active, false}]) of
+  case gen_tcp:connect(Host, Port, [
+      %% erts driver buffer byte size
+      %%  - don't modify kernel buffers; allow autotuning to work there
+      {buffer, ?ERTS_BUFFER_SIZE},
+      %% tcp socket send immediately
+      {nodelay, true},
+      %% the basics...
+      {mode, binary}, {packet, raw}, {active, false}]) of
     {ok, Sock} ->
       Sock;
     {error, Reason} ->
@@ -53,8 +61,12 @@ connect(Host, Port) ->
 
 %%------------------------------------------------------------------------------
 recv_greeting(Sock, Timeout) ->
-  {Data, SeqNum, <<>>} = recv_packet(Sock, Timeout, <<>>),
-  make_greeting(Data, SeqNum).
+  case gen_tcp:recv(Sock, 0, Timeout) of
+    {ok, <<Len:24/little, SeqNum:8, Data:Len/binary>>} ->
+      make_greeting(Data, SeqNum);
+    {error, Reason} ->
+      throw({tcp, {failed_recv, Reason}})
+  end.
 
 %%------------------------------------------------------------------------------
 send_and_recv(Sock, Data, SeqNum) ->
@@ -68,20 +80,22 @@ send_and_recv(Sock, Data, SeqNum) ->
 
 %%~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-%%------------------------------------------------------------------------------
-recv_packet(_Sock, _Timeout, <<Len:24/little, SeqNum:8, Data:Len/binary, Bin/binary>>) ->
+%------------------------------------------------------------------------------
+recv_packet(_Sock, <<Len:24/little, SeqNum:8, Data:Len/binary, Bin/binary>>) ->
   {Data, SeqNum, Bin};
 
-recv_packet(Sock, Timeout, <<Len:24/little, _SeqNum:8, Rest/binary>> = Bin) ->
-  %% The idea here is, inet tcp will do the accumulation for large packets
-  recv_packet(Sock, Timeout, <<Bin/binary, (recv(Sock, Len - size(Rest), infinity))/binary>>);
+recv_packet(Sock, <<Len:24/little, _SeqNum:8, Rest/binary>> = Bin) when
+    Len > ?ERTS_BUFFER_SIZE ->
+  %% Let the erts driver do the accumulation for large packets, it will
+  %% dynamically increase the buffer size when requested.
+  recv_packet(Sock, <<Bin/binary, (recv(Sock, Len - size(Rest)))/binary>>);
 
-recv_packet(Sock, Timeout, Bin) ->
-  recv_packet(Sock, Timeout, <<Bin/binary, (recv(Sock, 0, Timeout))/binary>>).
+recv_packet(Sock, Bin) ->
+  recv_packet(Sock, <<Bin/binary, (recv(Sock, 0))/binary>>).
 
 %%------------------------------------------------------------------------------
-recv(Sock, Requested, Timeout) ->
-  case gen_tcp:recv(Sock, Requested, Timeout) of
+recv(Sock, Requested) ->
+  case gen_tcp:recv(Sock, Requested, infinity) of
     {ok, Bin} ->
       Bin;
     {error, Reason} ->
@@ -145,7 +159,7 @@ process_response(Sock) ->
 response_list(_Sock, _Bin, 0) -> [];
 
 response_list(Sock, Bin, ?SERVER_MORE_RESULTS_EXIST) ->
-  {Data, SeqNum, MoreBin1} = recv_packet(Sock, infinity, Bin),
+  {Data, SeqNum, MoreBin1} = recv_packet(Sock, Bin),
   {Response, ServerStatus, MoreBin2} = handle_response(
     Sock, Data, SeqNum, MoreBin1),
   [Response | response_list(
@@ -195,16 +209,16 @@ handle_response(Sock, Data, _SeqNum, Bin) ->
 %%------------------------------------------------------------------------------
 recv_fields(Sock, 0, Fields, Bin) ->
   {<<?RESP_EOF, _WarningCount:16/little, ServerStatus:16/little>>,
-    SeqNum, MoreBin} = recv_packet(Sock, infinity, Bin),
+    SeqNum, MoreBin} = recv_packet(Sock, Bin),
   {lists:reverse(Fields ,[]), SeqNum, ServerStatus, MoreBin};
 
 recv_fields(Sock, FieldCount, Fields, Bin) ->
-  {Data, SeqNum, MoreBin} = recv_packet(Sock, infinity, Bin),
+  {Data, SeqNum, MoreBin} = recv_packet(Sock, Bin),
   recv_fields(Sock, FieldCount-1, [make_field(SeqNum, Data) | Fields], MoreBin).
 
 %%------------------------------------------------------------------------------
 recv_rows(Sock, Types, Acc, Bin) ->
-  {Data, SeqNum, MoreBin} = recv_packet(Sock, infinity, Bin),
+  {Data, SeqNum, MoreBin} = recv_packet(Sock, Bin),
   case Data of
     <<?RESP_EOF, _WarningCount:16/little, ServerStatus:16/little>> ->
       {lists:reverse(Acc, []), SeqNum, ServerStatus, MoreBin};
