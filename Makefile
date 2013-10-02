@@ -21,15 +21,13 @@ endif
 MODULES=$(shell ls -1 src/*.erl | awk -F[/.] '{ print $$2 }' | sed '$$q;s/$$/,/g')
 LIBDIR=$(shell erl -eval 'io:format("~s~n", [code:lib_dir()])' -s init stop -noshell)
 
-all: $(OBJECTS) $(APP)
+all: $(APP) $(OBJECTS)
 
 $(EBIN_DIR)/%.beam: $(SRC_DIR)/%.erl
 	erlc $(ERLC_FLAGS) -o $(EBIN_DIR) $<
 
 clean:
 	rm -f $(OBJECTS) $(APP)
-
-all: $(APP) $(OBJECTS)
 
 $(APP): $(SRC_DIR)/emysql.app.src
 	mkdir -p ebin
