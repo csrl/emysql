@@ -3,6 +3,6 @@
   {vsn, ""},
   {modules, []},
   {mod, {emysql_app, []}},
-  {registered, []},
+  {registered, [emysql_conn_mgr, emysql_sup]},
   {applications, [kernel, stdlib, crypto]}
 ]}.
