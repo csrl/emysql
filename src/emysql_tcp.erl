@@ -142,8 +142,12 @@ greeting_secure(ServerCaps, ScrambleLength, Secure) ->
       Salt2Length = max(13, ScrambleLength - 8),
       <<Salt20:Salt2Length/binary, Plugin0/binary>> = Secure,
       {Salt2, <<>>} = asciz(Salt20), %% trim trailing 0 if exists
-      {Plugin, <<>>} = asciz(Plugin0), %% trim trailing 0 if exists
-      {Salt2, Plugin};
+      case asciz(Plugin0) of %% trim trailing 0 if exists
+        {<<>>, <<>>} ->
+          {Salt2, ?MYSQL_NATIVE_PASSWORD}; %% support 5.1 servers
+        {Plugin, <<>>} ->
+          {Salt2, Plugin}
+      end;
     _ ->
       {<<>>, <<>>}
   end.
