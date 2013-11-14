@@ -90,31 +90,36 @@ handshake(Sock, User, Password, Database, undefined, Greeting) ->
 
 handshake(Sock, User, Password, Database, Collation, Greeting) ->
   #greeting{
-    seq_num=SeqNum, caps=ServerCaps, salt=Salt, plugin=Plugin} = Greeting,
+    seq_num=SeqNum, caps=ServerCaps, salt=Salt, plugin=Plugin0} = Greeting,
   Caps = validate_server_caps(ServerCaps),
   Maxsize = ?MAXPACKETBYTES,
+  Plugin = case Plugin0 of
+    <<>> -> ?MYSQL_NATIVE_PASSWORD;
+    _ -> Plugin0
+  end,
   ScrambleBuff = password(Plugin, Password, Salt),
   ScrambleLen = size(ScrambleBuff),
   Packet = [
     <<Caps:32/little, Maxsize:32/little, Collation:8, 0:23/unit:8>>,
     User, 0, ScrambleLen, ScrambleBuff, Database, 0],
   case emysql_tcp:send_and_recv(Sock, Packet, SeqNum+1) of
-    #eof_packet{seq_num = SeqNum1} ->
-      AuthOld = password(?MYSQL_OLD_PASSWORD, Password, Salt),
-      emysql_tcp:send_and_recv(Sock, [AuthOld, 0], SeqNum1+1);
+    #authswitch{seq_num = SeqNum1} ->
+      Rescramble = password(?MYSQL_OLD_PASSWORD, Password, Salt),
+      emysql_tcp:send_and_recv(Sock, [Rescramble, 0], SeqNum1+1);
     Result ->
       Result
   end.
 
 %%------------------------------------------------------------------------------
 password(?MYSQL_OLD_PASSWORD, Password, Salt) ->
-  {P1, P2} = hash(Password),
-  {S1, S2} = hash(Salt),
+  Salt1 = binary:part(iolist_to_binary(Salt), 0, 8), % only use first 8 bytes of salt
+  {P1, P2} = hash(binary_to_list(iolist_to_binary(Password))),
+  {S1, S2} = hash(binary_to_list(Salt1)),
   Seed1 = P1 bxor S1,
   Seed2 = P2 bxor S2,
   List = rnd(9, Seed1, Seed2),
   {L, [Extra]} = lists:split(8, List),
-  list_to_binary(lists:map(fun (E) -> E bxor (Extra - 64) end, L));
+  list_to_binary(lists:map(fun (E) -> (E + 64) bxor Extra end, L));
 
 password(?MYSQL_NATIVE_PASSWORD, Password, Salt) ->
   Stage1 = crypto:hash(sha, Password),
@@ -151,7 +156,11 @@ dualmap(F, [E1 | R1], [E2 | R2]) ->
 %%~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 %%------------------------------------------------------------------------------
-hash(S) -> hash(binary_to_list(iolist_to_binary(S)), 1345345333, 305419889, 7).
+hash(S) -> hash(S, 1345345333, 16#12345671, 7).
+hash([9 | S], N1, N2, Add) -> %% Skip tabs
+  hash(S, N1, N2, Add);
+hash([32 | S], N1, N2, Add) -> %% Skip spaces
+  hash(S, N1, N2, Add);
 hash([C | S], N1, N2, Add) ->
   N1_1 = N1 bxor (((N1 band 63) + Add) * C + N1 * 256),
   N2_1 = N2 + ((N2 * 256) bxor N1_1),
@@ -171,6 +180,5 @@ rnd(N, List, Seed1, Seed2) ->
   Mod = (1 bsl 30) - 1,
   NSeed1 = (Seed1 * 3 + Seed2) rem Mod,
   NSeed2 = (NSeed1 + Seed2 + 33) rem Mod,
-  Float = (float(NSeed1) / float(Mod))*31,
-  Val = trunc(Float)+64,
+  Val = trunc((float(NSeed1) / float(Mod))*31),
   rnd(N - 1, [Val | List], NSeed1, NSeed2).

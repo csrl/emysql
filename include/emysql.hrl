@@ -38,6 +38,8 @@
 -record(greeting, {
   seq_num, protocol_version, server_version, thread_id, salt, caps, collation,
   status, plugin}).
+-record(authswitch, {
+  seq_num}).
 
 %% Records returned externally
 -record(field, {
@@ -49,8 +51,6 @@
   seq_num, code, status, msg}).
 -record(result_packet, {
   seq_num, fields, rows}).
--record(eof_packet, {
-  seq_num, status, warning_count}).
 
 %% MYSQL CLIENT/SERVER CAPABILITIES
 -define(CLIENT_LONG_PASSWORD, 1).

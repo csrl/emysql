@@ -134,7 +134,7 @@ greeting_more(More) ->
     ScrambleLength:8/little, 0:10/unit:8, Secure/binary>> = More,
   {ServerCollation, ServerStatus, ServerCapsH, ScrambleLength, Secure}.
 
-greeting_secure(_ServerCaps, 0, <<>>) ->
+greeting_secure(_ServerCaps, _, <<>>) ->
   {<<>>, <<>>};
 greeting_secure(ServerCaps, ScrambleLength, Secure) ->
   case ?CLIENT_SECURE_CONNECTION band ServerCaps of
@@ -142,12 +142,8 @@ greeting_secure(ServerCaps, ScrambleLength, Secure) ->
       Salt2Length = max(13, ScrambleLength - 8),
       <<Salt20:Salt2Length/binary, Plugin0/binary>> = Secure,
       {Salt2, <<>>} = asciz(Salt20), %% trim trailing 0 if exists
-      case asciz(Plugin0) of %% trim trailing 0 if exists
-        {<<>>, <<>>} ->
-          {Salt2, ?MYSQL_NATIVE_PASSWORD}; %% support 5.1 servers
-        {Plugin, <<>>} ->
-          {Salt2, Plugin}
-      end;
+      {Plugin, <<>>} = asciz(Plugin0), %% trim trailing 0 if exists
+      {Salt2, Plugin};
     _ ->
       {<<>>, <<>>}
   end.
@@ -183,11 +179,11 @@ handle_response(_Sock, <<?RESP_OK, Rest/binary>>, SeqNum, Bin) ->
     msg = Msg},
   ServerStatus, Bin};
 
-%% This is only needed here for the old password fallback handling during
+%% This is only needed here for the password switch handling during
 %% connection handshake.
-handle_response(_Sock, <<?RESP_EOF, WarningCount:16/little, ServerStatus:16/little>>, SeqNum, Bin) ->
-  {#eof_packet{seq_num = SeqNum, status = ServerStatus, warning_count = WarningCount},
-    ServerStatus, Bin};
+handle_response(_Sock, <<?RESP_EOF>>, SeqNum, Bin) ->
+  {#authswitch{seq_num = SeqNum},
+    ?SERVER_NO_STATUS, Bin};
 
 handle_response(_Sock, <<?RESP_ERROR, ErrNo:16/little, "#", SQLState:5/binary, Msg/binary>>, SeqNum, Bin) ->
   {#error_packet{seq_num = SeqNum, code = ErrNo, status = SQLState, msg = Msg},
