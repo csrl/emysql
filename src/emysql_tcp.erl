@@ -108,15 +108,14 @@ make_greeting(Data, SeqNum) ->
     ServerCapsL, More} = greeting_base(Data),
   {ServerCollation, ServerStatus, ServerCapsH,
     ScrambleLength, Secure} = greeting_more(More),
-  ServerCaps = ServerCapsL bor (ServerCapsH bsl 16),
-  {Salt2, Plugin} = greeting_secure(ServerCaps, ScrambleLength, Secure),
+  {Salt2, Plugin} = greeting_secure(ScrambleLength, Secure),
   #greeting{
     seq_num = SeqNum,
     protocol_version = ProtocolVersion,
     server_version = ServerVersion,
     thread_id = ThreadID,
     salt = [Salt1, Salt2],
-    caps = ServerCaps,
+    caps = ServerCapsL bor (ServerCapsH bsl 16),
     collation = ServerCollation,
     status = ServerStatus,
     plugin = Plugin}.
@@ -134,19 +133,10 @@ greeting_more(More) ->
     ScrambleLength:8/little, 0:10/unit:8, Secure/binary>> = More,
   {ServerCollation, ServerStatus, ServerCapsH, ScrambleLength, Secure}.
 
-greeting_secure(_ServerCaps, _, <<>>) ->
-  {<<>>, <<>>};
-greeting_secure(ServerCaps, ScrambleLength, Secure) ->
-  case ?CLIENT_SECURE_CONNECTION band ServerCaps of
-    ?CLIENT_SECURE_CONNECTION ->
-      Salt2Length = max(13, ScrambleLength - 8),
-      <<Salt20:Salt2Length/binary, Plugin0/binary>> = Secure,
-      {Salt2, <<>>} = asciz(Salt20), %% trim trailing 0 if exists
-      {Plugin, <<>>} = asciz(Plugin0), %% trim trailing 0 if exists
-      {Salt2, Plugin};
-    _ ->
-      {<<>>, <<>>}
-  end.
+greeting_secure(_ScrambleLength, Secure) ->
+  {Salt2, Plugin0} = asciz(Secure),
+  {Plugin, <<>>} = asciz(Plugin0), %% trim trailing 0 if exists
+  {Salt2, Plugin}.
 
 %%------------------------------------------------------------------------------
 process_response(Sock) ->
