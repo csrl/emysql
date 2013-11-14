@@ -114,7 +114,7 @@ make_greeting(Data, SeqNum) ->
     protocol_version = ProtocolVersion,
     server_version = ServerVersion,
     thread_id = ThreadID,
-    salt = [Salt1, Salt2],
+    salt = iolist_to_binary([Salt1, Salt2]),
     caps = ServerCapsL bor (ServerCapsH bsl 16),
     collation = ServerCollation,
     status = ServerStatus,

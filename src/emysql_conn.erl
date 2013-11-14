@@ -119,9 +119,9 @@ handshake(Sock, User, Password, Database, Collation, Greeting) ->
 
 %%------------------------------------------------------------------------------
 password(?MYSQL_OLD_PASSWORD, Password, Salt) ->
-  Salt1 = binary:part(iolist_to_binary(Salt), 0, 8), % only use first 8 bytes of salt
-  {P1, P2} = hash(binary_to_list(iolist_to_binary(Password))),
-  {S1, S2} = hash(binary_to_list(Salt1)),
+  Salt1 = binary:part(Salt, 0, 8), % only use first 8 bytes of salt
+  {P1, P2} = hash(Password),
+  {S1, S2} = hash(Salt1),
   Seed1 = P1 bxor S1,
   Seed2 = P2 bxor S2,
   List = rnd(9, Seed1, Seed2),
@@ -163,6 +163,8 @@ dualmap(F, [E1 | R1], [E2 | R2]) ->
 %%~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 %%------------------------------------------------------------------------------
+hash(S) when is_binary(S) ->
+  hash(binary_to_list(S));
 hash(S) -> hash(S, 1345345333, 16#12345671, 7).
 hash([9 | S], N1, N2, Add) -> %% Skip tabs
   hash(S, N1, N2, Add);
