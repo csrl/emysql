@@ -181,8 +181,10 @@ handle_response(_Sock, <<?RESP_OK, Rest/binary>>, SeqNum, Bin) ->
 
 %% This is only needed here for the password switch handling during
 %% connection handshake.
-handle_response(_Sock, <<?RESP_EOF>>, SeqNum, Bin) ->
-  {#authswitch{seq_num = SeqNum},
+handle_response(_Sock, <<?RESP_EOF, Rest/binary>>, SeqNum, Bin) ->
+  {Plugin, Salt0} = asciz(Rest),
+  {Salt, <<>>} = asciz(Salt0),
+  {#authswitch{seq_num = SeqNum, plugin = Plugin, salt = Salt},
     ?SERVER_NO_STATUS, Bin};
 
 handle_response(_Sock, <<?RESP_ERROR, ErrNo:16/little, "#", SQLState:5/binary, Msg/binary>>, SeqNum, Bin) ->

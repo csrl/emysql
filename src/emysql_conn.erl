@@ -41,7 +41,7 @@
   ?CLIENT_PROTOCOL_41 bor ?CLIENT_SECURE_CONNECTION bor ?CLIENT_CONNECT_WITH_DB
   )).
 -define(CLIENT_CAPS_OPTIONAL, (
-  ?CLIENT_MULTI_STATEMENTS bor ?CLIENT_MULTI_RESULTS)).
+  ?CLIENT_MULTI_STATEMENTS bor ?CLIENT_MULTI_RESULTS bor ?CLIENT_PLUGIN_AUTH)).
 -define(CLIENT_CAPS, (?CLIENT_CAPS_REQUIRED bor ?CLIENT_CAPS_OPTIONAL)).
 
 %%~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -99,12 +99,19 @@ handshake(Sock, User, Password, Database, Collation, Greeting) ->
   end,
   ScrambleBuff = password(Plugin, Password, Salt),
   ScrambleLen = size(ScrambleBuff),
+  PluginClient = case ?CLIENT_PLUGIN_AUTH band Caps of
+    ?CLIENT_PLUGIN_AUTH -> [Plugin, 0];
+    0 -> <<>>
+  end,
   Packet = [
     <<Caps:32/little, Maxsize:32/little, Collation:8, 0:23/unit:8>>,
-    User, 0, ScrambleLen, ScrambleBuff, Database, 0],
+    User, 0, ScrambleLen, ScrambleBuff, Database, 0, PluginClient],
   case emysql_tcp:send_and_recv(Sock, Packet, SeqNum+1) of
-    #authswitch{seq_num = SeqNum1} ->
+    #authswitch{seq_num = SeqNum1, plugin = <<>>, salt = <<>>} ->
       Rescramble = password(?MYSQL_OLD_PASSWORD, Password, Salt),
+      emysql_tcp:send_and_recv(Sock, [Rescramble, 0], SeqNum1+1);
+    #authswitch{seq_num = SeqNum1, plugin = Plugin1, salt = Salt1} ->
+      Rescramble = password(Plugin1, Password, Salt1),
       emysql_tcp:send_and_recv(Sock, [Rescramble, 0], SeqNum1+1);
     Result ->
       Result

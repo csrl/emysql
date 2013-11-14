@@ -39,7 +39,7 @@
   seq_num, protocol_version, server_version, thread_id, salt, caps, collation,
   status, plugin}).
 -record(authswitch, {
-  seq_num}).
+  seq_num, plugin, salt}).
 
 %% Records returned externally
 -record(field, {
