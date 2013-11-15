@@ -30,7 +30,7 @@
 
 -export([close/1, connect/2, recv_greeting/2, send_and_recv/3]).
 
--include("emysql.hrl").
+-include("emysql_internal.hrl").
 
 %% Default collation will mostly go unused on newer mysql servers, as with them
 %% we just default to what the server wants.

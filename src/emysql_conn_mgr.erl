@@ -39,7 +39,7 @@
   handle_call/3, handle_cast/2, handle_info/2
 ]).
 
--include("emysql.hrl").
+-include("emysql_internal.hrl").
 
 -record(state, {pools}).
 

@@ -31,7 +31,7 @@
 -export([start/2, stop/1]).
 -export([config/1, pool_config/1, modules/0]).
 
--include("emysql.hrl").
+-include("emysql_internal.hrl").
 
 %%~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

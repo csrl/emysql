@@ -32,7 +32,7 @@
   close/1, open/7, query/2
 ]).
 
--include("emysql.hrl").
+-include("emysql_internal.hrl").
 
 -define(GREETING_TIMEOUT, 5000). %% milliseconds
 -define(MAXPACKETBYTES, 16#00FFFFFF). %% 16MB per protocol spec
