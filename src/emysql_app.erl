@@ -41,13 +41,14 @@ start(_Type, _StartArgs) ->
 
 %%------------------------------------------------------------------------------
 stop(_State) ->
-  emysql_conn_mgr:remove_all_pools().
+  emysql_conn_mgr:remove_all_pools(),
+  ok.
 
 %%------------------------------------------------------------------------------
 config(pools) ->
   case application:get_env(emysql, pools) of
     {ok, Pools} when is_list(Pools) ->
-      [{PoolId, pool_config(Props)} || {PoolId, Props} <- Pools];
+      Pools;
     _ ->
       []
   end.

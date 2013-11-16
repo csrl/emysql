@@ -362,7 +362,8 @@ handle_info(_Info, State) ->
 load_pools([]) ->
   [];
 
-load_pools([{PoolId, {Size, Config}} | Pools]) ->
+load_pools([{PoolId, Props} | Pools]) ->
+  {Size, Config} = emysql_app:pool_config(Props),
   Conns = init_connections(PoolId, Config, Size),
   Pool = #pool{
     pool_id = PoolId,
