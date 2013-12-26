@@ -29,7 +29,7 @@
 -module(emysql_conn).
 
 -export([
-  close/1, open/7, query/2
+  close/1, open/6, query/2
 ]).
 
 -include("emysql_internal.hrl").
@@ -52,11 +52,11 @@ close(#connection{socket = Sock}) ->
   ok.
 
 %%------------------------------------------------------------------------------
-open(PoolId, User, Password, Host, Port, Database, Collation) ->
+open(User, Password, Host, Port, Database, Collation) ->
   Sock = emysql_tcp:connect(Host, Port),
   try
     ThreadID = greet(Sock, User, Password, Database, Collation),
-    #connection{socket = Sock, pool_id = PoolId, thread_id = ThreadID}
+    #connection{socket = Sock, thread_id = ThreadID}
   catch
     {Who, _Error} = What when open =:= Who orelse tcp =:= Who ->
       emysql_tcp:close(Sock),

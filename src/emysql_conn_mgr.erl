@@ -390,11 +390,11 @@ init_connections(PoolId, Config, Count) ->
 open_connection(PoolId, #pool_config{
     host=Host, port=Port, user=User, password=Pass,
     database=Db, collation=Co}) ->
-  try emysql_conn:open(PoolId, User, Pass, Host, Port, Db, Co) of
+  try emysql_conn:open(User, Pass, Host, Port, Db, Co) of
     Connection ->
       case give_manager_control(Connection#connection.socket) of
         ok ->
-          {ok, Connection};
+          {ok, Connection#connection{pool_id = PoolId}};
         {error, _Reason} = Error ->
           emysql_conn:close(Connection),
           Error
