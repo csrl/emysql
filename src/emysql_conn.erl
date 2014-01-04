@@ -44,6 +44,10 @@
   ?CLIENT_MULTI_STATEMENTS bor ?CLIENT_MULTI_RESULTS bor ?CLIENT_PLUGIN_AUTH)).
 -define(CLIENT_CAPS, (?CLIENT_CAPS_REQUIRED bor ?CLIENT_CAPS_OPTIONAL)).
 
+%% AUTH PLUGIN
+-define(MYSQL_NATIVE_PASSWORD,  <<"mysql_native_password">>).
+-define(MYSQL_OLD_PASSWORD,     <<"mysql_old_password">>).
+
 %%~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 %%------------------------------------------------------------------------------
