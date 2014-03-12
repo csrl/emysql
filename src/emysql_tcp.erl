@@ -103,6 +103,9 @@ recv(Sock, Requested) ->
   end.
 
 %%------------------------------------------------------------------------------
+make_greeting(<<?RESP_ERROR, ErrNo:16/little, Msg/binary>> ,SeqNum) ->
+  #error_packet{seq_num = SeqNum, code = ErrNo, msg = Msg}
+;
 make_greeting(Data, SeqNum) ->
   {ProtocolVersion, ServerVersion, ThreadID, Salt1,
     ServerCapsL, More} = greeting_base(Data),
