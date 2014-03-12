@@ -1,4 +1,4 @@
-VERSION=1.0.0
+VERSION=2.0.0
 
 EBIN_DIR=ebin
 SRC_DIR=src
